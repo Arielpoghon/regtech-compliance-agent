@@ -1,0 +1,7 @@
+seg*.mp4
+concat.txt
+make_video.sh
+runs/
+*.log
+node_modules/
+__pycache__/

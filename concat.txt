@@ -1,7 +1,0 @@
-file '/home/arielp/Work/hackathon-bli/seg1.mp4'
-file '/home/arielp/Work/hackathon-bli/seg2.mp4'
-file '/home/arielp/Work/hackathon-bli/seg3.mp4'
-file '/home/arielp/Work/hackathon-bli/seg4.mp4'
-file '/home/arielp/Work/hackathon-bli/seg5.mp4'
-file '/home/arielp/Work/hackathon-bli/seg6.mp4'
-file '/home/arielp/Work/hackathon-bli/seg7.mp4'
