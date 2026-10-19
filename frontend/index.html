@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RegTech AI Compliance Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-bold">RegTech AI Compliance Agent</h1>
+      <p class="text-sm text-slate-400">BLI Legal Tech Hackathon 2 — LegalTech &amp; RegTech track</p>
+    </div>
+    <span class="text-xs text-slate-500">v0.2.0</span>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section class="space-y-4">
+      <div class="flex items-center justify-between">
+        <label class="text-sm font-medium">Smart contract source (Solidity)</label>
+        <select id="jurisdiction" class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm">
+          <option value="US">United States (SEC/FinCEN)</option>
+          <option value="EU">European Union (MiCA)</option>
+          <option value="SG">Singapore (MAS)</option>
+          <option value="UAE">UAE (VARA/SCA)</option>
+        </select>
+      </div>
+      <textarea id="source" rows="22" placeholder="// Paste Solidity source here..."
+        class="w-full bg-slate-900 border border-slate-700 rounded-lg p-4 font-mono text-xs focus:outline-none focus:border-indigo-500"></textarea>
+      <div class="flex gap-3">
+        <button id="analyzeBtn" class="bg-indigo-600 hover:bg-indigo-500 px-5 py-2 rounded-lg font-medium text-sm">Analyze compliance</button>
+        <button id="sampleBtn" class="bg-slate-800 hover:bg-slate-700 px-5 py-2 rounded-lg font-medium text-sm">Load risky contract</button>
+        <button id="cleanBtn" class="bg-slate-800 hover:bg-slate-700 px-5 py-2 rounded-lg font-medium text-sm">Load clean contract</button>
+      </div>
+      <p id="status" class="text-xs text-slate-400"></p>
+    </section>
+
+    <section class="space-y-4">
+      <div id="riskCard" class="hidden bg-slate-900 border border-slate-700 rounded-lg p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold">Risk assessment</h2>
+          <span id="riskBadge" class="px-3 py-1 rounded-full text-xs font-bold"></span>
+        </div>
+        <div class="text-3xl font-bold mb-1"><span id="riskScore">0</span><span class="text-base text-slate-400">/100</span></div>
+        <p id="riskReasons" class="text-sm text-slate-300"></p>
+      </div>
+
+      <div id="patternsCard" class="hidden bg-slate-900 border border-slate-700 rounded-lg p-5">
+        <h2 class="font-semibold mb-3">Detected compliance patterns</h2>
+        <div id="patterns" class="flex flex-wrap gap-2"></div>
+        <div class="mt-3 text-xs text-slate-400">
+          Addresses found: <span id="addrCount">0</span> · Sanctioned hits: <span id="sanctionedCount" class="text-red-400">0</span>
+        </div>
+      </div>
+
+      <div id="reportCard" class="hidden bg-slate-900 border border-slate-700 rounded-lg p-5">
+        <h2 class="font-semibold mb-3">Compliance report</h2>
+        <div id="report" class="prose prose-invert prose-sm max-w-none"></div>
+      </div>
+    </section>
+  </main>
+
+<script>
+// ---- Embedded analyzer (ported from Python backend) ----
+const SANCTIONS = new Set([
+  "0x000000000000000000000000000000000000dead",
+  "0x8576acc5c05d6ce88f4e49bf65bdf0c62f91353c",
+  "0x1da5821544e25c636c1417ba96ffe2dd455e9213",
+  "0x098b716b8aaf21512996dc57eb0615e2383e2f96",
+]);
+const JURISDICTIONS = {
+  US: {name:"United States (SEC/FinCEN)", kyc:"KYC + AML (BSA)", sanctions:"OFAC SDN", disclosure:"Securities Act 1933/34", stablecoin:"GENIUS Act 2025"},
+  EU: {name:"European Union (MiCA)", kyc:"KYC + AMLD6", sanctions:"EU Consolidated List", disclosure:"MiCA Title III/IV", stablecoin:"MiCA EMT/ART"},
+  SG: {name:"Singapore (MAS)", kyc:"MAS AML/CFT", sanctions:"UN + MAS", disclosure:"SFA", stablecoin:"MAS stablecoin framework"},
+  UAE: {name:"UAE (VARA/SCA)", kyc:"VARA AML", sanctions:"UN + UAE", disclosure:"VARA rulebook", stablecoin:"VARA stablecoin rules"},
+};
+const PATTERNS = [
+  ["owner", /\b(owner|admin|governor|operator)\b/gi, "admin control surface"],
+  ["pause", /\b(pause|unpause|paused)\b/gi, "circuit breaker present"],
+  ["blacklist", /\b(blacklist|blocklist|blocked|banned)\b/gi, "address blocking capability"],
+  ["whitelist", /\b(whitelist|allowlist|allowed)\b/gi, "allowlist gating"],
+  ["mint", /\b(mint|Mint)\b/g, "minting capability"],
+  ["burn", /\b(burn|Burn)\b/g, "burning capability"],
+  ["upgrade", /\b(upgrade|Upgrade|proxy|Proxy|UUPS)\b/g, "upgradeable proxy"],
+  ["oracle", /\boracle|Oracle|priceFeed|PriceFeed\b/g, "external price oracle dependency"],
+  ["reentrancy", /\.call\{value:|\.call\.value\(/g, "reentrancy-prone external call"],
+  ["kyc", /\b(kyc|KYC|verifyIdentity|identityVerified|isVerified)\b/g, "KYC hook present"],
+  ["transfer_restrict", /\b(transferRestriction|canTransfer|_beforeTokenTransfer)\b/g, "transfer restrictions"],
+  ["multisig", /\b(multisig|MultiSig|threshold)\b/g, "multisig governance"],
+  ["timelock", /\b(timelock|Timelock|delay)\b/g, "timelock present"],
+  ["emergency", /\b(emergency|Emergency|rescue)\b/g, "emergency rescue function"],
+];
+
+function stripComments(src) {
+  return src.replace(/\/\/.*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+function analyzeSource(src) {
+  const code = stripComments(src);
+  const hits = {};
+  for (const [name, pat, desc] of PATTERNS) {
+    const m = code.match(pat);
+    if (m && m.length) hits[name] = {count: m.length, desc};
+  }
+  const addrs = new Set((src.match(/0x[a-fA-F0-9]{40}/g) || []));
+  const sanctioned = [...addrs].filter(a => SANCTIONS.has(a.toLowerCase()));
+  let risk = 0; const reasons = [];
+  if (hits.mint && hits.owner && !hits.multisig && !hits.timelock) { risk += 30; reasons.push("unilateral minting without timelock/multisig"); }
+  if (hits.upgrade && !hits.timelock) { risk += 20; reasons.push("upgradeable without timelock"); }
+  if (hits.reentrancy) { risk += 25; reasons.push("reentrancy-prone external call"); }
+  if (hits.oracle) { risk += 10; reasons.push("external price oracle dependency"); }
+  if (sanctioned.length) { risk += 50; reasons.push("sanctioned address referenced: " + sanctioned); }
+  if (hits.blacklist && !hits.kyc) { risk += 10; reasons.push("blacklist without KYC gating"); }
+  if (hits.emergency) { risk += 5; reasons.push("emergency rescue function present"); }
+  risk = Math.min(risk, 100);
+  const level = risk < 30 ? "LOW" : risk < 60 ? "MEDIUM" : risk < 85 ? "HIGH" : "CRITICAL";
+  return {patterns: hits, addresses_found: [...addrs], sanctioned_hits: sanctioned, risk_score: risk, risk_level: level, risk_reasons: reasons};
+}
+
+function fallbackReport(a, j) {
+  const rl = a.risk_level, rs = a.risk_score, hits = a.patterns;
+  const sanctioned = a.sanctioned_hits, reasons = a.risk_reasons;
+  let lines = [];
+  lines.push(`## Summary\nRisk level: **${rl}** (score ${rs}/100). Detected ${Object.keys(hits).length} compliance-relevant code patterns. Jurisdiction: ${j.name}.`);
+  lines.push(`\n## Sanctions screening\nAddresses found: ${a.addresses_found.length}. Sanctioned hits: ${sanctioned.length ? sanctioned : "none"}. Regime: ${j.sanctions}.`);
+  lines.push(`\n## KYC/AML posture\nKYC hook present: ${!!hits.kyc}. Transfer restrictions: ${!!hits.transfer_restrict}. Blacklist capability: ${!!hits.blacklist}. Whitelist gating: ${!!hits.whitelist}. Regime: ${j.kyc}.`);
+  lines.push(`\n## Legal document attestations\nDisclosure regime: ${j.disclosure}. Stablecoin framework: ${j.stablecoin}. Multisig governance: ${!!hits.multisig}. Timelock: ${!!hits.timelock}.`);
+  lines.push("\n## Recommendations");
+  if (reasons.length) reasons.forEach(r => lines.push("- Address: " + r));
+  else lines.push("- No high-risk patterns detected; proceed with standard legal review.");
+  lines.push("- Obtain legal counsel review before mainnet deployment.");
+  lines.push("- Maintain an audit trail of compliance decisions.");
+  return lines.join("\n");
+}
+
+// ---- Sample contracts ----
+const SAMPLE_RISKY = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract RiskyToken {
+    address public owner;
+    bool public paused;
+    mapping(address => bool) public blacklist;
+    mapping(address => bool) public whitelist;
+    bool public kycRequired = false;
+
+    constructor() { owner = msg.sender; }
+
+    function mint(address to, uint256 amount) external {
+        require(msg.sender == owner, "not owner");
+        _mint(to, amount);
+    }
+
+    function pause() external { require(msg.sender == owner); paused = true; }
+
+    function blacklistAddr(address a) external { require(msg.sender == owner); blacklist[a] = true; }
+
+    function upgradeTo(address newImpl) external { require(msg.sender == owner); /* UUPS */ }
+
+    function rescueTokens(address token, uint256 amt) external { require(msg.sender == owner); }
+
+    function getPrice() external view returns (uint256) {
+        // oracle dependency
+        return priceFeed.latestAnswer();
+    }
+
+    function withdraw() external {
+        (bool ok,) = msg.sender.call{value: address(this).balance}("");
+        require(ok);
+    }
+}`;
+
+const SAMPLE_CLEAN = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @title CompliantRWA
+contract CompliantRWA {
+    address public admin;
+    address public timelock;
+    address public multisig;
+    bool public paused;
+    mapping(address => bool) public kycVerified;
+    mapping(address => bool) public transferAllowed;
+
+    modifier onlyMultisig() { require(msg.sender == multisig, "not multisig"); _; }
+    modifier onlyTimelock() { require(msg.sender == timelock, "not timelock"); _; }
+
+    constructor(address _multisig, address _timelock) {
+        admin = msg.sender;
+        multisig = _multisig;
+        timelock = _timelock;
+    }
+
+    function transfer(address to, uint256 amt) external {
+        require(kycVerified[msg.sender] && kycVerified[to], "kyc required");
+        require(transferAllowed[to], "not allowed");
+        require(!paused, "paused");
+        _transfer(msg.sender, to, amt);
+    }
+
+    function pause() external onlyMultisig { paused = true; }
+    function unpause() external onlyMultisig { paused = false; }
+    function upgradeTo(address newImpl) external onlyTimelock { /* UUPS */ }
+
+    function _transfer(address from, address to, uint256 amt) internal {}
+}`;
+
+// ---- UI wiring ----
+document.getElementById("sampleBtn").onclick = () => { document.getElementById("source").value = SAMPLE_RISKY; };
+document.getElementById("cleanBtn").onclick = () => { document.getElementById("source").value = SAMPLE_CLEAN; };
+
+document.getElementById("analyzeBtn").onclick = async () => {
+  const source = document.getElementById("source").value.trim();
+  const jurisdiction = document.getElementById("jurisdiction").value;
+  if (source.length < 10) { document.getElementById("status").textContent = "Paste a contract first."; return; }
+  const btn = document.getElementById("analyzeBtn");
+  btn.disabled = true; btn.textContent = "Analyzing…";
+  document.getElementById("status").textContent = "Running heuristic analysis…";
+  try {
+    const a = analyzeSource(source);
+    const j = JURISDICTIONS[jurisdiction];
+    const report = fallbackReport(a, j);
+    render({analysis: a, report, jurisdiction, jurisdiction_info: j});
+    document.getElementById("status").textContent = "Done. (Offline mode — deterministic report. Add OPENAI_API_KEY to backend for LLM reports.)";
+  } catch (e) {
+    document.getElementById("status").textContent = "Error: " + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "Analyze compliance";
+  }
+};
+
+function render(d) {
+  const a = d.analysis;
+  const rc = document.getElementById("riskCard"); rc.classList.remove("hidden");
+  const badge = document.getElementById("riskBadge");
+  badge.textContent = a.risk_level;
+  const colors = {LOW:"bg-emerald-600", MEDIUM:"bg-amber-600", HIGH:"bg-orange-600", CRITICAL:"bg-red-600"};
+  badge.className = "px-3 py-1 rounded-full text-xs font-bold " + (colors[a.risk_level]||"bg-slate-600");
+  document.getElementById("riskScore").textContent = a.risk_score;
+  document.getElementById("riskReasons").innerHTML = (a.risk_reasons.length
+    ? a.risk_reasons.map(r => "• " + r).join("<br>")
+    : "No high-risk patterns detected.");
+
+  const pc = document.getElementById("patternsCard"); pc.classList.remove("hidden");
+  const pdiv = document.getElementById("patterns");
+  pdiv.innerHTML = "";
+  for (const [k, v] of Object.entries(a.patterns)) {
+    const span = document.createElement("span");
+    span.className = "bg-slate-800 border border-slate-700 px-2 py-1 rounded text-xs";
+    span.textContent = `${k} (${v.count})`;
+    span.title = v.desc;
+    pdiv.appendChild(span);
+  }
+  document.getElementById("addrCount").textContent = a.addresses_found.length;
+  document.getElementById("sanctionedCount").textContent = a.sanctioned_hits.length;
+
+  const rcard = document.getElementById("reportCard"); rcard.classList.remove("hidden");
+  document.getElementById("report").innerHTML = marked.parse(d.report);
+}
+</script>
+</body>
+</html>
+EOF
+echo "self-contained frontend written"
