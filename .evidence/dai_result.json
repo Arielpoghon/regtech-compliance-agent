@@ -1,0 +1,15 @@
+{
+ "name": "dai",
+ "file": "/nix/store/w5qm70gq7qwa3087hknnddpy3acn8fnp-dss/dapp/dss/src/dai.sol",
+ "match": "exact_match",
+ "risk": 0,
+ "level": "LOW",
+ "patterns": {
+  "whitelist": 3,
+  "mint": 1,
+  "burn": 1
+ },
+ "addresses": 1,
+ "sanctioned": [],
+ "reasons": []
+}

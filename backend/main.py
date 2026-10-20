@@ -164,6 +164,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     socketserver.ThreadingTCPServer.allow_reuse_address = True
-with socketserver.ThreadingTCPServer(("", port), Handler) as httpd:
+    with socketserver.ThreadingTCPServer(("", port), Handler) as httpd:
         print(f"RegTech agent listening on http://localhost:{port}")
         httpd.serve_forever()

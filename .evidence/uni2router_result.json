@@ -1,0 +1,19 @@
+{
+ "name": "uni2router",
+ "file": "UniswapV2Router02.sol",
+ "match": "match",
+ "risk": 55,
+ "level": "MEDIUM",
+ "patterns": {
+  "owner": 8,
+  "mint": 4,
+  "burn": 3,
+  "reentrancy": 1
+ },
+ "addresses": 0,
+ "sanctioned": [],
+ "reasons": [
+  "unilateral minting without timelock/multisig",
+  "reentrancy-prone external call"
+ ]
+}

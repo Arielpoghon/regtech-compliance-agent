@@ -1,0 +1,11 @@
+{
+ "name": "weth",
+ "file": "WETH9.sol",
+ "match": "match",
+ "risk": 0,
+ "level": "LOW",
+ "patterns": {},
+ "addresses": 0,
+ "sanctioned": [],
+ "reasons": []
+}
